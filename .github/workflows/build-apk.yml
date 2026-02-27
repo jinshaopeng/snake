@@ -31,35 +31,46 @@ jobs:
       uses: android-actions/setup-android@v3
       with:
         cmdline-tools-version: 9477386
-        # 确保安装Android 22+的SDK（适配minSdkVersion 22）
         packages: 'platform-tools platforms;android-34 platforms;android-22 build-tools;34.0.0'
 
-    - name: Install Capacitor and dependencies
+    # ========== 关键修改1：降级Capacitor到兼容API 34的版本 ==========
+    - name: Install compatible Capacitor version
       run: |
         npm init -y
-        npm install @capacitor/core @capacitor/cli @capacitor/android
+        # 安装Capacitor 5.6.0（兼容API 34，无VANILLA_ICE_CREAM依赖）
+        npm install @capacitor/core@5.6.0 @capacitor/cli@5.6.0 @capacitor/android@5.6.0
 
     - name: Initialize Capacitor and add Android
       run: |
         npx cap init "贪吃蛇" com.example.snakegame --web-dir=www
         npx cap add android
 
-    - name: Copy www files
+    - name: Prepare web assets
       run: |
-        # 确保www目录存在（如果为空，创建空文件避免Capacitor报错）
         mkdir -p www
-        echo "<html><body>Snake Game</body></html>" > www/index.html
+        echo "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>贪吃蛇游戏</title>
+</head>
+<body>
+    <h1>贪吃蛇游戏</h1>
+    <div id='game'></div>
+</body>
+</html>" > www/index.html
         ls -la www/
 
-    - name: Fix Gradle configuration for JDK 21
+    - name: Fix Gradle and resource configuration
       run: |
-        # 1. 根目录build.gradle（minSdkVersion升级到22）
+        # 1. 根目录build.gradle
         cat > android/build.gradle << 'EOF'
         buildscript {
             ext {
-                kotlin_version = "1.9.20"
+                kotlin_version = "1.9.0"
                 compileSdkVersion = 34
-                minSdkVersion = 22  // 关键：升级到22，匹配Cordova要求
+                minSdkVersion = 22
                 targetSdkVersion = 34
                 androidxActivityVersion = '1.8.0'
                 androidxAppCompatVersion = '1.6.1'
@@ -81,7 +92,7 @@ jobs:
                 mavenCentral()
             }
             dependencies {
-                classpath 'com.android.tools.build:gradle:8.4.0'
+                classpath 'com.android.tools.build:gradle:8.2.0'
                 classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
             }
         }
@@ -100,7 +111,7 @@ jobs:
         }
         EOF
 
-        # 2. app模块build.gradle（同步minSdkVersion到22）
+        # 2. app模块build.gradle
         cat > android/app/build.gradle << 'EOF'
         apply plugin: 'com.android.application'
         apply plugin: 'kotlin-android'
@@ -112,7 +123,7 @@ jobs:
 
             defaultConfig {
                 applicationId "com.example.snakegame"
-                minSdkVersion rootProject.ext.minSdkVersion  // 继承22
+                minSdkVersion rootProject.ext.minSdkVersion
                 targetSdkVersion rootProject.ext.targetSdkVersion
                 versionCode 1
                 versionName "1.0"
@@ -146,6 +157,8 @@ jobs:
             implementation "androidx.fragment:fragment:$androidxFragmentVersion"
             implementation "androidx.core:core-ktx:$androidxCoreVersion"
             implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+            // 添加SplashScreen依赖，解决Theme.SplashScreen缺失
+            implementation "androidx.core:core-splashscreen:$coreSplashscreenVersion"
             
             testImplementation "junit:junit:$junitVersion"
             androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
@@ -178,16 +191,36 @@ jobs:
         org.gradle.classpath.instrumentation.enabled=false
         EOF
 
-        # 4. Gradle 8.6（适配AGP 8.4.0）
+        # 4. Gradle 8.2（适配AGP 8.2.0 + API 34）
         cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
-        distributionUrl=https\://services.gradle.org/distributions/gradle-8.6-bin.zip
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
         zipStoreBase=GRADLE_USER_HOME
         zipStorePath=wrapper/dists
         EOF
 
-    - name: Clean Gradle cache and build
+        # 5. 修复主题资源：创建styles.xml补充Theme.SplashScreen
+        mkdir -p android/app/src/main/res/values
+        cat > android/app/src/main/res/values/styles.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <!-- 补充缺失的SplashScreen主题 -->
+            <style name="Theme.SplashScreen" parent="Theme.SplashScreen.Base">
+                <item name="windowSplashScreenBackground">@android:color/white</item>
+                <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+                <item name="postSplashScreenTheme">@style/AppTheme</item>
+            </style>
+            
+            <style name="AppTheme" parent="Theme.MaterialComponents.Light.NoActionBar">
+                <item name="colorPrimary">@android:color/black</item>
+                <item name="colorPrimaryDark">@android:color/black</item>
+                <item name="colorAccent">@android:color/black</item>
+            </style>
+        </resources>
+        EOF
+
+    - name: Clean and build
       run: |
         rm -rf ~/.gradle/caches/
         npx cap sync android
