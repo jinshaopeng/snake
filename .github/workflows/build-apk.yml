@@ -11,6 +11,8 @@ jobs:
     env:
       GRADLE_OPTS: "-Xmx4g -Xms2g"
       ANDROID_HOME: /usr/local/android-sdk
+      # 添加环境变量禁用配置缓存，避免Gradle 8.1的兼容性问题
+      ORG_GRADLE_CONFIGURATION_CACHE: "false"
 
     steps:
     - name: Checkout code
@@ -20,18 +22,34 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm' # 启用npm缓存，加速依赖安装
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: 'gradle' # 启用Gradle缓存，但后续会清理损坏的缓存
 
     - name: Install Android SDK
       uses: android-actions/setup-android@v3
       with:
         cmdline-tools-version: 9477386
         packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+    # ========== 新增：修复Gradle缓存权限和清理损坏缓存 ==========
+    - name: Fix Gradle cache permissions and clean corrupted cache
+      run: |
+        # 创建Gradle缓存目录并赋予正确权限
+        mkdir -p /home/runner/.gradle/caches/
+        chown -R runner:runner /home/runner/.gradle/
+        chmod -R 755 /home/runner/.gradle/
+        
+        # 停止所有Gradle守护进程
+        ./gradlew --stop || true
+        
+        # 删除损坏的JAR缓存目录（针对bcprov-jdk18on相关错误）
+        rm -rf /home/runner/.gradle/caches/jars-9/ || true
 
     - name: Install Capacitor and dependencies
       run: |
@@ -47,10 +65,10 @@ jobs:
       run: |
         ls -la www/
 
-    # ========== 彻底修复：生成完整且语法正确的 Gradle 配置 ==========
+    # ========== 优化：生成完整且语法正确的 Gradle 配置（保留你的逻辑，新增BC库版本强制指定） ==========
     - name: Fix Gradle configuration files
       run: |
-        # 1. 生成根目录 build.gradle（语法完全正确）
+        # 1. 生成根目录 build.gradle（新增BC库版本强制指定）
         cat > android/build.gradle << 'EOF'
         // Top-level build file where you can add configuration options common to all sub-projects/modules.
         buildscript {
@@ -93,6 +111,12 @@ jobs:
                 google()
                 mavenCentral()
             }
+            // 新增：强制指定BC库版本，解决Jar创建失败问题
+            configurations.all {
+                resolutionStrategy {
+                    force 'org.bouncycastle:bcprov-jdk18on:1.78.1'
+                }
+            }
         }
 
         task clean(type: Delete) {
@@ -100,7 +124,7 @@ jobs:
         }
         EOF
 
-        # 2. 生成 app 模块 build.gradle
+        # 2. 生成 app 模块 build.gradle（无修改，保留你的逻辑）
         cat > android/app/build.gradle << 'EOF'
         apply plugin: 'com.android.application'
         apply plugin: 'kotlin-android'
@@ -167,18 +191,21 @@ jobs:
         }
         EOF
 
-        # 3. 配置 gradle.properties
+        # 3. 配置 gradle.properties（新增禁用配置缓存）
         cat > android/gradle.properties << 'EOF'
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         android.useAndroidX=true
         android.nonTransitiveRClass=true
         android.enableJetifier=true
         org.gradle.caching=false
+        org.gradle.configuration-cache=false # 禁用配置缓存，避免Gradle 8.1的bug
         org.gradle.internal.http.connectionTimeout=300000
         org.gradle.internal.http.socketTimeout=300000
+        # 禁用守护进程，避免CI环境中进程残留问题
+        org.gradle.daemon=false
         EOF
 
-        # 4. 配置 gradle wrapper（固定 Gradle 版本，避免自动下载 8.2.1）
+        # 4. 配置 gradle wrapper（保留你的逻辑）
         cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
@@ -187,12 +214,14 @@ jobs:
         zipStorePath=wrapper/dists
         EOF
 
+    # ========== 优化构建命令：添加更多稳定性参数 ==========
     - name: Sync and build
       run: |
         npx cap sync android
         cd android
         chmod +x gradlew
-        ./gradlew clean assembleDebug --refresh-dependencies --no-daemon
+        # 添加--no-configuration-cache和--stacktrace便于排查问题，--refresh-dependencies强制刷新依赖
+        ./gradlew clean assembleDebug --refresh-dependencies --no-daemon --no-configuration-cache --stacktrace
 
     - name: Find APK
       run: |
