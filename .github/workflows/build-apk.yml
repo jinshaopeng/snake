@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 增加 Gradle 内存配置，避免构建内存不足
+    env:
+      GRADLE_OPTS: "-Xmx4g -Xms2g"
+      ANDROID_HOME: /usr/local/android-sdk
 
     steps:
     - name: Checkout code
@@ -44,12 +48,50 @@ jobs:
       run: |
         ls -la www/
 
+    # ========== 新增关键步骤：配置 Gradle 国内镜像 ==========
+    - name: Configure Gradle with China mirror
+      run: |
+        # 1. 修改 android/build.gradle 添加阿里云 Maven 镜像
+        cat > android/build.gradle << 'EOF'
+        buildscript {
+            repositories {
+                maven { url 'https://maven.aliyun.com/repository/public' }
+                maven { url 'https://maven.aliyun.com/repository/google' }
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:8.1.4'
+            }
+        }
+
+        allprojects {
+            repositories {
+                maven { url 'https://maven.aliyun.com/repository/public' }
+                maven { url 'https://maven.aliyun.com/repository/google' }
+                google()
+                mavenCentral()
+            }
+        }
+
+        task clean(type: Delete) {
+            delete rootProject.buildDir
+        }
+        EOF
+
+        # 2. 禁用 Gradle 缓存，避免缓存损坏问题
+        echo "org.gradle.caching=false" >> android/gradle.properties
+        # 3. 增加 Gradle 超时时间
+        echo "org.gradle.internal.http.connectionTimeout=300000" >> android/gradle.properties
+        echo "org.gradle.internal.http.socketTimeout=300000" >> android/gradle.properties
+
     - name: Sync and build
       run: |
         npx cap sync android
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug
+        # 关键修改：添加 --refresh-dependencies 强制刷新依赖，--no-daemon 避免守护进程问题
+        ./gradlew clean assembleDebug --refresh-dependencies --no-daemon
 
     - name: Find APK
       run: |
