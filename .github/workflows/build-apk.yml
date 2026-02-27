@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 增加 Gradle 内存配置，避免构建内存不足
     env:
       GRADLE_OPTS: "-Xmx4g -Xms2g"
       ANDROID_HOME: /usr/local/android-sdk
@@ -48,49 +47,81 @@ jobs:
       run: |
         ls -la www/
 
-    # ========== 新增关键步骤：配置 Gradle 国内镜像 ==========
-    - name: Configure Gradle with China mirror
+    # ========== 修复：正确配置 Gradle 镜像和 Android 构建参数 ==========
+    - name: Configure Gradle and Android build settings
       run: |
-        # 1. 修改 android/build.gradle 添加阿里云 Maven 镜像
-        cat > android/build.gradle << 'EOF'
-        buildscript {
-            repositories {
-                maven { url 'https://maven.aliyun.com/repository/public' }
-                maven { url 'https://maven.aliyun.com/repository/google' }
-                google()
-                mavenCentral()
+        # 1. 配置根目录 build.gradle（添加镜像，不覆盖原有内容）
+        sed -i 's|repositories {|repositories {\n        maven { url "https://maven.aliyun.com/repository/public" }\n        maven { url "https://maven.aliyun.com/repository/google" }|g' android/build.gradle
+        sed -i 's|allprojects {|allprojects {\n    repositories {\n        maven { url "https://maven.aliyun.com/repository/public" }\n        maven { url "https://maven.aliyun.com/repository/google" }|g' android/build.gradle
+
+        # 2. 配置 app 模块的 build.gradle（添加必要的 Android 构建参数）
+        cat > android/app/build.gradle << 'EOF'
+        apply plugin: 'com.android.application'
+
+        android {
+            namespace "com.example.snakegame"
+            compileSdkVersion 34
+            buildToolsVersion "34.0.0"
+
+            defaultConfig {
+                applicationId "com.example.snakegame"
+                minSdkVersion 21
+                targetSdkVersion 34
+                versionCode 1
+                versionName "1.0"
+
+                testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
             }
-            dependencies {
-                classpath 'com.android.tools.build:gradle:8.1.4'
+
+            buildTypes {
+                release {
+                    minifyEnabled false
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                }
+            }
+            
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
             }
         }
 
-        allprojects {
-            repositories {
-                maven { url 'https://maven.aliyun.com/repository/public' }
-                maven { url 'https://maven.aliyun.com/repository/google' }
-                google()
-                mavenCentral()
-            }
+        dependencies {
+            implementation fileTree(dir: 'libs', include: ['*.jar'])
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.11.0'
+            testImplementation 'junit:junit:4.13.2'
+            androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+            androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+            
+            // Capacitor 核心依赖
+            implementation project(':capacitor-android')
         }
 
-        task clean(type: Delete) {
-            delete rootProject.buildDir
+        apply from: 'capacitor.build.gradle'
+
+        try {
+            def servicesJSON = file('google-services.json')
+            if (servicesJSON.text) {
+                apply plugin: 'com.google.gms.google-services'
+            }
+        } catch (Exception e) {
+            logger.warn("google-services.json not found, google-services plugin not applied. Push Notification won't work")
         }
         EOF
 
-        # 2. 禁用 Gradle 缓存，避免缓存损坏问题
+        # 3. 优化 Gradle 属性
         echo "org.gradle.caching=false" >> android/gradle.properties
-        # 3. 增加 Gradle 超时时间
         echo "org.gradle.internal.http.connectionTimeout=300000" >> android/gradle.properties
         echo "org.gradle.internal.http.socketTimeout=300000" >> android/gradle.properties
+        echo "android.useAndroidX=true" >> android/gradle.properties
+        echo "android.enableJetifier=true" >> android/gradle.properties
 
     - name: Sync and build
       run: |
         npx cap sync android
         cd android
         chmod +x gradlew
-        # 关键修改：添加 --refresh-dependencies 强制刷新依赖，--no-daemon 避免守护进程问题
         ./gradlew clean assembleDebug --refresh-dependencies --no-daemon
 
     - name: Find APK
