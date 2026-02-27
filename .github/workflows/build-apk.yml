@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: /usr/local/android-sdk
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -16,37 +19,52 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 9477386
-          packages: 'platform-tools platforms;android-34 platforms;android-22 build-tools;34.0.0'
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+            platforms;android-22
 
-      - name: Install Capacitor and initialize project
+      - name: Initialize Project
         run: |
-          # 初始化npm和安装稳定版Capacitor
+          # 基础初始化
           npm init -y
           npm install @capacitor/core@4.8.1 @capacitor/cli@4.8.1 @capacitor/android@4.8.1
           
-          # 初始化Capacitor项目
+          # 创建www目录和基础页面
+          mkdir -p www
+          echo '<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>贪吃蛇</title>
+</head>
+<body>
+    <h1>贪吃蛇游戏</h1>
+</body>
+</html>' > www/index.html
+          
+          # 初始化Capacitor
           npx cap init SnakeGame com.example.snake --web-dir=www
           npx cap add android
-          
-          # 创建基础网页文件
-          mkdir -p www
-          echo "<!DOCTYPE html><html><body><h1>Snake Game</h1></body></html>" > www/index.html
 
-      - name: Create valid build.gradle (修复核心语法错误)
+      - name: Fix Android Configuration
         run: |
-          # 根目录build.gradle - 标准多行写法，Gradle能正确解析
-          cat > android/build.gradle << 'EOF'
+          # 1. 根build.gradle (标准结构，无语法错误)
+          cat > android/build.gradle << EOF
 buildscript {
     ext {
         kotlin_version = "1.8.22"
@@ -60,7 +78,7 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.0.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:\$kotlin_version"
     }
 }
 
@@ -76,8 +94,8 @@ task clean(type: Delete) {
 }
 EOF
 
-          # App模块build.gradle
-          cat > android/app/build.gradle << 'EOF'
+          # 2. app/build.gradle (完整可运行)
+          cat > android/app/build.gradle << EOF
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
@@ -92,7 +110,6 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
-
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -109,12 +126,12 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = "17"
     }
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:\$kotlin_version"
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation project(':capacitor-android')
 }
@@ -122,8 +139,8 @@ dependencies {
 apply from: 'capacitor.build.gradle'
 EOF
 
-          # Gradle wrapper配置
-          cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          # 3. gradle-wrapper.properties
+          cat > android/gradle/wrapper/gradle-wrapper.properties << EOF
 distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
 distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
@@ -131,24 +148,33 @@ zipStoreBase=GRADLE_USER_HOME
 zipStorePath=wrapper/dists
 EOF
 
-          # Gradle属性配置
-          cat > android/gradle.properties << 'EOF'
+          # 4. gradle.properties
+          cat > android/gradle.properties << EOF
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 android.nonTransitiveRClass=true
 android.enableJetifier=true
+org.gradle.caching=false
 EOF
 
       - name: Build APK
         run: |
           cd android
-          chmod +x gradlew
-          # 清理缓存并构建
-          ./gradlew clean assembleDebug --no-daemon --refresh-dependencies
+          chmod +x ./gradlew
+          ./gradlew clean assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Verify and Upload APK
+        run: |
+          # 验证APK存在
+          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+              echo "✅ APK构建成功！"
+              ls -la android/app/build/outputs/apk/debug/
+          else
+              echo "❌ APK构建失败！"
+              exit 1
+          fi
         uses: actions/upload-artifact@v4
         with:
           name: SnakeGame-APK
           path: android/app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          retention-days: 30
