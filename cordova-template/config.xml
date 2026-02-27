@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.example.snakegame" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+    <name>贪吃蛇</name>
+    <description>经典贪吃蛇游戏 - 经典怀旧</description>
+    <author email="dev@example.com" href="https://example.com">Game Developer</author>
+    <content src="index.html" />
+    <access origin="*" />
+    <allow-intent href="http://*/*" />
+    <allow-intent href="https://*/*" />
+    <preference name="Orientation" value="portrait" />
+    <preference name="Fullscreen" value="true" />
+    <preference name="KeepRunning" value="true" />
+    <preference name="SplashScreen" value="none" />
+    <preference name="BackgroundColor" value="0xff1a1a2e" />
+</widget>

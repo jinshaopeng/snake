@@ -1,0 +1,11 @@
+{
+  "name": "snake-game",
+  "version": "1.0.0",
+  "description": "贪吃蛇游戏",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'Use GitHub Actions to build APK'"
+  },
+  "author": "",
+  "license": "MIT"
+}
