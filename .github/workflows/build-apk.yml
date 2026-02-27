@@ -49,7 +49,8 @@ jobs:
     - name: Prepare web assets
       run: |
         mkdir -p www
-        cat > www/index.html << 'HTML'
+        # 修复第53行：改用EOF替代HTML，避免YAML解析冲突
+        cat > www/index.html << EOF
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -69,13 +70,13 @@ jobs:
     </script>
 </body>
 </html>
-HTML
+EOF
         ls -la www/
 
     - name: Fix Gradle and resource configuration
       run: |
         # 1. 根目录build.gradle
-        cat > android/build.gradle << 'EOF'
+        cat > android/build.gradle << EOF
 buildscript {
     ext {
         kotlin_version = "1.8.22"
@@ -103,7 +104,7 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.0.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:\$kotlin_version"
     }
 }
 
@@ -122,7 +123,7 @@ task clean(type: Delete) {
 EOF
 
         # 2. app模块build.gradle
-        cat > android/app/build.gradle << 'EOF'
+        cat > android/app/build.gradle << EOF
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
@@ -162,17 +163,17 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:\$kotlin_version"
+    implementation "androidx.appcompat:appcompat:\$androidxAppCompatVersion"
     implementation "com.google.android.material:material:1.9.0"
-    implementation "androidx.activity:activity:$androidxActivityVersion"
-    implementation "androidx.fragment:fragment:$androidxFragmentVersion"
-    implementation "androidx.core:core-ktx:$androidxCoreVersion"
-    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+    implementation "androidx.activity:activity:\$androidxActivityVersion"
+    implementation "androidx.fragment:fragment:\$androidxFragmentVersion"
+    implementation "androidx.core:core-ktx:\$androidxCoreVersion"
+    implementation "androidx.webkit:webkit:\$androidxWebkitVersion"
     
-    testImplementation "junit:junit:$junitVersion"
-    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
-    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    testImplementation "junit:junit:\$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:\$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:\$androidxEspressoCoreVersion"
     
     implementation project(':capacitor-android')
 }
@@ -190,7 +191,7 @@ try {
 EOF
 
         # 3. gradle.properties
-        cat > android/gradle.properties << 'EOF'
+        cat > android/gradle.properties << EOF
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 android.nonTransitiveRClass=true
@@ -200,7 +201,7 @@ org.gradle.parallel=true
 EOF
 
         # 4. gradle-wrapper.properties
-        cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+        cat > android/gradle/wrapper/gradle-wrapper.properties << EOF
 distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
 distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
@@ -210,7 +211,7 @@ EOF
 
         # 5. styles.xml
         mkdir -p android/app/src/main/res/values
-        cat > android/app/src/main/res/values/styles.xml << 'EOF'
+        cat > android/app/src/main/res/values/styles.xml << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="Theme.MaterialComponents.Light.NoActionBar">
@@ -224,7 +225,7 @@ EOF
 
         # 6. AndroidManifest.xml
         mkdir -p android/app/src/main
-        cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+        cat > android/app/src/main/AndroidManifest.xml << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.snakegame">
@@ -250,7 +251,7 @@ EOF
         </activity>
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
+            android:authorities="\${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -263,7 +264,7 @@ EOF
 
         # 7. file_paths.xml
         mkdir -p android/app/src/main/res/xml
-        cat > android/app/src/main/res/xml/file_paths.xml << 'EOF'
+        cat > android/app/src/main/res/xml/file_paths.xml << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path name="external_files" path="." />
