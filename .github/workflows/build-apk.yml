@@ -47,26 +47,73 @@ jobs:
       run: |
         ls -la www/
 
-    # ========== 修复：正确配置 Gradle 镜像和 Android 构建参数 ==========
-    - name: Configure Gradle and Android build settings
+    # ========== 彻底修复：生成完整且语法正确的 Gradle 配置 ==========
+    - name: Fix Gradle configuration files
       run: |
-        # 1. 配置根目录 build.gradle（添加镜像，不覆盖原有内容）
-        sed -i 's|repositories {|repositories {\n        maven { url "https://maven.aliyun.com/repository/public" }\n        maven { url "https://maven.aliyun.com/repository/google" }|g' android/build.gradle
-        sed -i 's|allprojects {|allprojects {\n    repositories {\n        maven { url "https://maven.aliyun.com/repository/public" }\n        maven { url "https://maven.aliyun.com/repository/google" }|g' android/build.gradle
+        # 1. 生成根目录 build.gradle（语法完全正确）
+        cat > android/build.gradle << 'EOF'
+        // Top-level build file where you can add configuration options common to all sub-projects/modules.
+        buildscript {
+            ext {
+                kotlin_version = "1.9.0"
+                compileSdkVersion = 34
+                minSdkVersion = 21
+                targetSdkVersion = 34
+                androidxActivityVersion = '1.8.0'
+                androidxAppCompatVersion = '1.6.1'
+                androidxCoordinatorLayoutVersion = '1.2.0'
+                androidxCoreVersion = '1.12.0'
+                androidxFragmentVersion = '1.6.1'
+                coreSplashscreenVersion = '1.0.1'
+                androidxWebkitVersion = '1.6.1'
+                junitVersion = '4.13.2'
+                androidxJunitVersion = '1.1.5'
+                androidxEspressoCoreVersion = '3.5.1'
+                cordovaAndroidVersion = '10.1.1'
+            }
+            repositories {
+                // 国内镜像优先
+                maven { url 'https://maven.aliyun.com/repository/public' }
+                maven { url 'https://maven.aliyun.com/repository/google' }
+                maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:8.1.4'
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+            }
+        }
 
-        # 2. 配置 app 模块的 build.gradle（添加必要的 Android 构建参数）
+        allprojects {
+            repositories {
+                // 国内镜像优先
+                maven { url 'https://maven.aliyun.com/repository/public' }
+                maven { url 'https://maven.aliyun.com/repository/google' }
+                google()
+                mavenCentral()
+            }
+        }
+
+        task clean(type: Delete) {
+            delete rootProject.buildDir
+        }
+        EOF
+
+        # 2. 生成 app 模块 build.gradle
         cat > android/app/build.gradle << 'EOF'
         apply plugin: 'com.android.application'
+        apply plugin: 'kotlin-android'
 
         android {
             namespace "com.example.snakegame"
-            compileSdkVersion 34
+            compileSdkVersion rootProject.ext.compileSdkVersion
             buildToolsVersion "34.0.0"
 
             defaultConfig {
                 applicationId "com.example.snakegame"
-                minSdkVersion 21
-                targetSdkVersion 34
+                minSdkVersion rootProject.ext.minSdkVersion
+                targetSdkVersion rootProject.ext.targetSdkVersion
                 versionCode 1
                 versionName "1.0"
 
@@ -84,15 +131,25 @@ jobs:
                 sourceCompatibility JavaVersion.VERSION_17
                 targetCompatibility JavaVersion.VERSION_17
             }
+            
+            kotlinOptions {
+                jvmTarget = JavaVersion.VERSION_17.toString()
+            }
         }
 
         dependencies {
             implementation fileTree(dir: 'libs', include: ['*.jar'])
-            implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'com.google.android.material:material:1.11.0'
-            testImplementation 'junit:junit:4.13.2'
-            androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-            androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+            implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+            implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+            implementation "com.google.android.material:material:1.11.0"
+            implementation "androidx.activity:activity:$androidxActivityVersion"
+            implementation "androidx.fragment:fragment:$androidxFragmentVersion"
+            implementation "androidx.core:core-ktx:$androidxCoreVersion"
+            implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+            
+            testImplementation "junit:junit:$junitVersion"
+            androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+            androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
             
             // Capacitor 核心依赖
             implementation project(':capacitor-android')
@@ -110,12 +167,25 @@ jobs:
         }
         EOF
 
-        # 3. 优化 Gradle 属性
-        echo "org.gradle.caching=false" >> android/gradle.properties
-        echo "org.gradle.internal.http.connectionTimeout=300000" >> android/gradle.properties
-        echo "org.gradle.internal.http.socketTimeout=300000" >> android/gradle.properties
-        echo "android.useAndroidX=true" >> android/gradle.properties
-        echo "android.enableJetifier=true" >> android/gradle.properties
+        # 3. 配置 gradle.properties
+        cat > android/gradle.properties << 'EOF'
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        android.useAndroidX=true
+        android.nonTransitiveRClass=true
+        android.enableJetifier=true
+        org.gradle.caching=false
+        org.gradle.internal.http.connectionTimeout=300000
+        org.gradle.internal.http.socketTimeout=300000
+        EOF
+
+        # 4. 配置 gradle wrapper（固定 Gradle 版本，避免自动下载 8.2.1）
+        cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+        distributionBase=GRADLE_USER_HOME
+        distributionPath=wrapper/dists
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.1-bin.zip
+        zipStoreBase=GRADLE_USER_HOME
+        zipStorePath=wrapper/dists
+        EOF
 
     - name: Sync and build
       run: |
