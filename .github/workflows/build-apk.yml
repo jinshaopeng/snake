@@ -8,173 +8,59 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_SDK_ROOT: /usr/local/android-sdk
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 18
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 9477386
-          packages: |
-            platform-tools
-            platforms;android-34
-            build-tools;34.0.0
-            platforms;android-22
+          packages: platform-tools platforms;android-34 build-tools;34.0.0
 
-      - name: Initialize Project
+      - name: Prepare Project
         run: |
-          # 基础初始化
           npm init -y
           npm install @capacitor/core@4.8.1 @capacitor/cli@4.8.1 @capacitor/android@4.8.1
-          
-          # 创建www目录和基础页面
-          mkdir -p www
-          echo '<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>贪吃蛇</title>
-</head>
-<body>
-    <h1>贪吃蛇游戏</h1>
-</body>
-</html>' > www/index.html
-          
-          # 初始化Capacitor
-          npx cap init SnakeGame com.example.snake --web-dir=www
+          npx cap init snake com.example.snake --web-dir=www
           npx cap add android
+          mkdir -p www
+          echo "<html><body>Snake</body></html>" > www/index.html
 
-      - name: Fix Android Configuration
+      - name: Fix Gradle Files
         run: |
-          # 1. 根build.gradle (标准结构，无语法错误)
-          cat > android/build.gradle << EOF
-buildscript {
-    ext {
-        kotlin_version = "1.8.22"
-        compileSdkVersion = 34
-        minSdkVersion = 22
-        targetSdkVersion = 34
-    }
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.0.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:\$kotlin_version"
-    }
-}
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-task clean(type: Delete) {
-    delete rootProject.buildDir
-}
-EOF
-
-          # 2. app/build.gradle (完整可运行)
-          cat > android/app/build.gradle << EOF
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
-android {
-    namespace "com.example.snake"
-    compileSdkVersion rootProject.ext.compileSdkVersion
-    buildToolsVersion "34.0.0"
-
-    defaultConfig {
-        applicationId "com.example.snake"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-}
-
-dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:\$kotlin_version"
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation project(':capacitor-android')
-}
-
-apply from: 'capacitor.build.gradle'
-EOF
-
-          # 3. gradle-wrapper.properties
-          cat > android/gradle/wrapper/gradle-wrapper.properties << EOF
-distributionBase=GRADLE_USER_HOME
+          echo "buildscript { ext { kotlin_version='1.8.22'; compileSdkVersion=34; minSdkVersion=22; targetSdkVersion=34; } repositories { google(); mavenCentral(); } dependencies { classpath 'com.android.tools.build:gradle:8.0.0'; classpath \"org.jetbrains.kotlin:kotlin-gradle-plugin:\$kotlin_version\"; } } allprojects { repositories { google(); mavenCentral(); } } task clean(type: Delete) { delete rootProject.buildDir }" > android/build.gradle
+          
+          echo "apply plugin: 'com.android.application'; apply plugin: 'kotlin-android'; android { namespace 'com.example.snake'; compileSdkVersion rootProject.ext.compileSdkVersion; defaultConfig { applicationId 'com.example.snake'; minSdkVersion rootProject.ext.minSdkVersion; targetSdkVersion rootProject.ext.targetSdkVersion; versionCode 1; versionName '1.0'; } compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17; } kotlinOptions { jvmTarget='17'; } } dependencies { implementation 'androidx.appcompat:appcompat:1.6.1'; implementation project(':capacitor-android'); } apply from: 'capacitor.build.gradle'" > android/app/build.gradle
+          
+          echo "distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
 distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
 zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-EOF
-
-          # 4. gradle.properties
-          cat > android/gradle.properties << EOF
-org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-android.useAndroidX=true
-android.nonTransitiveRClass=true
-android.enableJetifier=true
-org.gradle.caching=false
-EOF
+zipStorePath=wrapper/dists" > android/gradle/wrapper/gradle-wrapper.properties
+          
+          echo "org.gradle.jvmargs=-Xmx2048m
+android.useAndroidX=true" > android/gradle.properties
 
       - name: Build APK
         run: |
           cd android
-          chmod +x ./gradlew
-          ./gradlew clean assembleDebug --no-daemon --stacktrace
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
-      - name: Verify and Upload APK
-        run: |
-          # 验证APK存在
-          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
-              echo "✅ APK构建成功！"
-              ls -la android/app/build/outputs/apk/debug/
-          else
-              echo "❌ APK构建失败！"
-              exit 1
-          fi
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: SnakeGame-APK
+          name: snake-apk
           path: android/app/build/outputs/apk/debug/*.apk
-          retention-days: 30
