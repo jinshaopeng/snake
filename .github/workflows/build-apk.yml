@@ -21,7 +21,6 @@ jobs:
       with:
         node-version: '18'
 
-    # JDK 21 保持不变（解决major version 65问题）
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
@@ -32,7 +31,8 @@ jobs:
       uses: android-actions/setup-android@v3
       with:
         cmdline-tools-version: 9477386
-        packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+        # 确保安装Android 22+的SDK（适配minSdkVersion 22）
+        packages: 'platform-tools platforms;android-34 platforms;android-22 build-tools;34.0.0'
 
     - name: Install Capacitor and dependencies
       run: |
@@ -46,17 +46,20 @@ jobs:
 
     - name: Copy www files
       run: |
+        # 确保www目录存在（如果为空，创建空文件避免Capacitor报错）
+        mkdir -p www
+        echo "<html><body>Snake Game</body></html>" > www/index.html
         ls -la www/
 
     - name: Fix Gradle configuration for JDK 21
       run: |
-        # 1. 根目录build.gradle（AGP 8.4.0 + 国内镜像）
+        # 1. 根目录build.gradle（minSdkVersion升级到22）
         cat > android/build.gradle << 'EOF'
         buildscript {
             ext {
                 kotlin_version = "1.9.20"
                 compileSdkVersion = 34
-                minSdkVersion = 21
+                minSdkVersion = 22  // 关键：升级到22，匹配Cordova要求
                 targetSdkVersion = 34
                 androidxActivityVersion = '1.8.0'
                 androidxAppCompatVersion = '1.6.1'
@@ -97,7 +100,7 @@ jobs:
         }
         EOF
 
-        # 2. app模块build.gradle（适配JDK21）
+        # 2. app模块build.gradle（同步minSdkVersion到22）
         cat > android/app/build.gradle << 'EOF'
         apply plugin: 'com.android.application'
         apply plugin: 'kotlin-android'
@@ -109,7 +112,7 @@ jobs:
 
             defaultConfig {
                 applicationId "com.example.snakegame"
-                minSdkVersion rootProject.ext.minSdkVersion
+                minSdkVersion rootProject.ext.minSdkVersion  // 继承22
                 targetSdkVersion rootProject.ext.targetSdkVersion
                 versionCode 1
                 versionName "1.0"
@@ -163,7 +166,7 @@ jobs:
         }
         EOF
 
-        # 3. gradle.properties（禁用字节码检测）
+        # 3. gradle.properties
         cat > android/gradle.properties << 'EOF'
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         android.useAndroidX=true
@@ -175,7 +178,7 @@ jobs:
         org.gradle.classpath.instrumentation.enabled=false
         EOF
 
-        # ========== 关键修改：Gradle升级到8.6 ==========
+        # 4. Gradle 8.6（适配AGP 8.4.0）
         cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
