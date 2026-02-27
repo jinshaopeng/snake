@@ -11,7 +11,6 @@ jobs:
     env:
       GRADLE_OPTS: "-Xmx4g -Xms2g"
       ANDROID_HOME: /usr/local/android-sdk
-      ORG_GRADLE_CONFIGURATION_CACHE: "false"
 
     steps:
     - name: Checkout code
@@ -21,15 +20,13 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        # 移除cache配置，避免因缺少lock文件报错；如果要保留缓存，需先生成lock文件
-        # cache: 'npm' 
 
-    - name: Set up JDK 17
+    # ========== 关键修改1：升级JDK到21 ==========
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
-        cache: 'gradle'
 
     - name: Install Android SDK
       uses: android-actions/setup-android@v3
@@ -37,22 +34,10 @@ jobs:
         cmdline-tools-version: 9477386
         packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
-    # 修复Gradle缓存权限和清理损坏缓存
-    - name: Fix Gradle cache permissions and clean corrupted cache
-      run: |
-        mkdir -p /home/runner/.gradle/caches/
-        chown -R runner:runner /home/runner/.gradle/
-        chmod -R 755 /home/runner/.gradle/
-        ./gradlew --stop || true
-        rm -rf /home/runner/.gradle/caches/jars-9/ || true
-
-    # 安装依赖时生成package-lock.json，可选（如果后续想重新启用npm缓存）
     - name: Install Capacitor and dependencies
       run: |
         npm init -y
         npm install @capacitor/core @capacitor/cli @capacitor/android
-        # 生成package-lock.json（可选，用于后续npm缓存）
-        npm install --package-lock-only
 
     - name: Initialize Capacitor and add Android
       run: |
@@ -63,14 +48,14 @@ jobs:
       run: |
         ls -la www/
 
-    # 生成完整的Gradle配置文件
-    - name: Fix Gradle configuration files
+    # ========== 关键修改2：适配JDK21的Gradle配置 ==========
+    - name: Fix Gradle configuration for JDK 21
       run: |
-        # 1. 生成根目录 build.gradle
+        # 1. 根目录build.gradle（适配JDK21 + 国内镜像）
         cat > android/build.gradle << 'EOF'
         buildscript {
             ext {
-                kotlin_version = "1.9.0"
+                kotlin_version = "1.9.20"
                 compileSdkVersion = 34
                 minSdkVersion = 21
                 targetSdkVersion = 34
@@ -94,7 +79,7 @@ jobs:
                 mavenCentral()
             }
             dependencies {
-                classpath 'com.android.tools.build:gradle:8.1.4'
+                classpath 'com.android.tools.build:gradle:8.4.0'
                 classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
             }
         }
@@ -106,11 +91,6 @@ jobs:
                 google()
                 mavenCentral()
             }
-            configurations.all {
-                resolutionStrategy {
-                    force 'org.bouncycastle:bcprov-jdk18on:1.78.1'
-                }
-            }
         }
 
         task clean(type: Delete) {
@@ -118,7 +98,7 @@ jobs:
         }
         EOF
 
-        # 2. 生成 app 模块 build.gradle
+        # 2. app模块build.gradle（适配JDK21）
         cat > android/app/build.gradle << 'EOF'
         apply plugin: 'com.android.application'
         apply plugin: 'kotlin-android'
@@ -146,12 +126,12 @@ jobs:
             }
             
             compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
+                sourceCompatibility JavaVersion.VERSION_21
+                targetCompatibility JavaVersion.VERSION_21
             }
             
             kotlinOptions {
-                jvmTarget = JavaVersion.VERSION_17.toString()
+                jvmTarget = JavaVersion.VERSION_21.toString()
             }
         }
 
@@ -180,46 +160,47 @@ jobs:
                 apply plugin: 'com.google.gms.google-services'
             }
         } catch (Exception e) {
-            logger.warn("google-services.json not found, google-services plugin not applied. Push Notification won't work")
+            logger.warn("google-services.json not found, google-services plugin not applied")
         }
         EOF
 
-        # 3. 配置 gradle.properties
+        # 3. 配置gradle.properties（禁用字节码检测）
         cat > android/gradle.properties << 'EOF'
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         android.useAndroidX=true
         android.nonTransitiveRClass=true
         android.enableJetifier=true
         org.gradle.caching=false
-        org.gradle.configuration-cache=false
         org.gradle.internal.http.connectionTimeout=300000
         org.gradle.internal.http.socketTimeout=300000
-        org.gradle.daemon=false
+        # 关键：禁用Gradle的字节码检测，避免处理JDK21类文件
+        org.gradle.classpath.instrumentation.enabled=false
         EOF
 
-        # 4. 配置 gradle wrapper
+        # 4. 配置Gradle 8.4（适配JDK21）
         cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
-        distributionUrl=https\://services.gradle.org/distributions/gradle-8.1-bin.zip
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
         zipStoreBase=GRADLE_USER_HOME
         zipStorePath=wrapper/dists
         EOF
 
-    # 同步并构建APK
-    - name: Sync and build
+    # ========== 关键修改3：清理缓存 + 构建 ==========
+    - name: Clean Gradle cache and build
       run: |
+        # 清理Gradle缓存
+        rm -rf ~/.gradle/caches/
         npx cap sync android
         cd android
         chmod +x gradlew
-        ./gradlew clean assembleDebug --refresh-dependencies --no-daemon --no-configuration-cache --stacktrace
+        # 禁用守护进程 + 强制刷新依赖
+        ./gradlew clean assembleDebug --refresh-dependencies --no-daemon --no-build-cache
 
-    # 查找生成的APK文件
     - name: Find APK
       run: |
         find . -name "*.apk" -type f
 
-    # 上传APK产物
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
